@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
-from distutils.core import setup, Extension
+from setuptools import setup, Extension
 
 yahoo2_pyx_module = Extension('_yahoo2',
-                              sources=['_yahoo2.c', 'callbacks.c'],
+                              sources=['_yahoo2.pyx', 'callbacks.c'],
                               libraries=['yahoo2'])
 
 setup(name='yahoo2',
