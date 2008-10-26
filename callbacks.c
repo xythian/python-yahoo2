@@ -1,11 +1,15 @@
-#include "callbacks.h"
+#include <yahoo2.h>
+#include <yahoo2_callbacks.h>
+
+
+#include <stdio.h>
+#include <stdarg.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <stdio.h>
 #include <string.h>
 #include <unistd.h> /* close */
 
@@ -632,29 +636,5 @@ int ext_yahoo_connect(char *host, int port) {
 }
 
 
-/*
- * Name: ext_yahoo_connect_async
- * 	Connect to a host:port asynchronously.  This function should return
- * 	immediately returing a tag used to identify the connection handler,
- * 	or a pre-connect error (eg: host name lookup failure).
- * 	Once the connect completes (successfully or unsuccessfully), callback
- * 	should be called (see the signature for yahoo_connect_callback).
- * 	The callback may safely be called before this function returns, but
- * 	it should not be called twice.
- * Params:
- * 	id   - the id that identifies this connection
- * 	host - the host to connect to
- * 	port - the port to connect on
- * 	callback - function to call when connect completes
- * 	callback_data - data to pass to the callback function
- * Returns:
- * 	a unix file descriptor to the socket
- */
-int ext_yahoo_connect_async(int id, char *host, int port, 
-			    yahoo_connect_callback callback, void *callback_data) {
-  int fd = ext_yahoo_connect(host, port);
-  callback(fd, 0, callback_data);
-  return fd;
-}
 
 
