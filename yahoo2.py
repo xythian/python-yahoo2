@@ -1,6 +1,6 @@
-from _yahoo2pyx import *
+from _yahoo2 import *
 
-import asynccore
+import asyncore
 
 class YFDHandle:
     def __init__(self, fd):
@@ -25,7 +25,7 @@ class YFDHandle:
         self.writers[tag] = handler
         return tag
     
-class connection_opener(asynccore.dispatcher):
+class connection_opener(asyncore.dispatcher):
     def handle_connect(self):
         pass
 
