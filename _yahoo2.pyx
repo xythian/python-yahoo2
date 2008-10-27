@@ -1,3 +1,7 @@
+import socket
+from errno import EALREADY, EINPROGRESS, EWOULDBLOCK, ECONNRESET, \
+     ENOTCONN, ESHUTDOWN, EINTR, EISCONN, errorcode
+
 
 cdef extern from "yahoo2.h":
     cdef enum yahoo_status:
@@ -73,7 +77,7 @@ cdef extern from "yahoo2.h":
     int yahoo_init(char *username, char *password)
     void yahoo_login(int id, int initial)
 
-    cdef enum yahoo_input_condition:
+    ctypedef enum yahoo_input_condition:
         YAHOO_INPUT_READ = 1 << 0,
         YAHOO_INPUT_WRITE = 1 << 1,
         YAHOO_INPUT_EXCEPTION = 1 << 2
@@ -86,71 +90,71 @@ cdef extern from "yahoo2.h":
 cdef extern from "yahoo2_callbacks.h":
     ctypedef void (*yahoo_connect_callback)(int fd, int error, void *callback_data)
 
-
-class YConnectionHandle:
-    def __init__(self):
-        pass
-
-    def __del__(self):
-        unregister_handler(self.id)
-
-    def connect(self, char *name, char *password):
-        self.id = yahoo_init(name, password)
-        register_handler(self.id, self)
-        yahoo_login(self.id, YAHOO_STATUS_INVISIBLE)
-
-    def _login_response(self, int succ, char *url): 
-        pass
-
-cdef class YReadHandler:
-    cdef int id, fd
-    cdef void *data
-
-    def __call__(self):
-        yahoo_read_ready(self.id, self.fd, self.data)
-
-cdef class YWriteHandler:
-    cdef int id, fd
-    cdef void *data
-    def __call__(self):
-        yahoo_write_ready(self.id, self.fd, self.data)
-
-
-cdef class YConnectionCallback:
-    cdef yahoo_connect_callback callback
-    cdef void *data
-
-    def __call__(self, fd, error):
-        self.callback(fd, error, self.data)
-
-class YConnectionManager:
+class IDSource:
     def __init__(self):
         self.__id = 0
-        self.__handlers = {}
 
-    def next_id(self):
+    def next(self):
         self.__id = self.__id + 1
         return self.__id
 
-    def connect_async(self, host, port, callback):
-        # what do we do with this tag??
-        self.begin_connect(host, port, callback)
-        return self.next_id()
+cdef class ConnectionHandle:
+    cdef int cid
+    cdef char *host
+    cdef int port
+    cdef void *read_data
+    cdef void *write_data
+    cdef void *connect_data
+    cdef yahoo_connect_callback connect_callback
+    cdef readonly int read_tag, write_tag
+    cdef int _readable, _writable
+    cdef object sock
 
-    def begin_connect(self, host, port, callback):
-        pass
+    def __init__(self, cid, host, port):
+        self.cid = cid
+        self.host = host
+        self.port = port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setblocking(0)
+        self.read_tag = ID_SOURCE.next()
+        self.write_tag = ID_SOURCE.next()
 
-    def connect(self, host, port):
-        pass
+    def fileno(self):
+        return self.sock.fileno()
 
-    def add_read_handler(self, fd, handler):
-        pass
+    def readable(self):
+        return bool(self.readable)
+    
+    def writable(self):
+        return bool(self.writable)
 
-    def add_write_handler(self, fd, handler):
-        pass
+    cdef void async_connect(self, yahoo_connect_callback callback, void *data):
+        self.connect_callback = callback
+        self.connect_data = data
+        err = self.sock.connect_ex((self.host, self.port))
+        if err in (EINPROGRESS, EALREADY, EWOULDBLOCK):
+            return
+        elif err in (0, EISCONN):
+            self.handle_connect()
 
-    def remove_handler(self, tag):
-        pass
+    cdef void _handle_connect(self):
+        if self.connect_callback is not NULL:
+            self.connect_callback(self.fileno(), 0, self.connect_data)
+            self.connect_callback = NULL
+ 
+    cdef void _handle_read(self):
+        if self._readable:
+           yahoo_read_ready(self.cid, self.fileno(), self.read_data)          
+
+    cdef void _handle_write(self):
+        if self._writable:
+           yahoo_write_ready(self.cid, self.fileno(), self.write_data)
+  
+    def handle_read(self):  self._handle_read()
+    def handle_write(self): self._handle_write()
+    def handle_connect(self): self._handle_connect()
+
+    
 
 
 #/*
@@ -173,32 +177,49 @@ class YConnectionManager:
 # */
 cdef public int ext_yahoo_connect_async(int id, char *host, int port, 
                                          yahoo_connect_callback callback, void *callback_data):
-   cdef YConnectionCallback cb
-   cb = YConnectionCallback()
-   cb.callback = callback
-   cb.data = callback_data
-   
-   # do I need to know the id?
-   return MANAGER.connect_async(host, port, cb)
+   cdef ConnectionHandle handle
+   handle = ConnectionHandle(id, host, port)
+   handle.connect_callback = callback
+   handle.connect_data = callback_data
+   handle.async_connect(callback, callback_data)
+   HANDLER_MAP[id].connections.append(handle)
+   MANAGER.add(handle)
+   return handle.fileno()
 
-#    def _got_ignore(self, YList *igns):
-#        pass
-
+ID_SOURCE = IDSource()
 HANDLER_MAP = {}
 MANAGER = None
 
-cdef void set_connection_manager(manager):
+def set_connection_manager(manager):
    global MANAGER
    MANAGER = manager
 
 cdef void register_handler(int id, handle):
    global HANDLER_MAP
+   # TODO: weak ref
    HANDLER_MAP[id] = handle
 
 cdef void unregister_handler(int id):
    global HANDLER_MAP
    if id in HANDLER_MAP:
        del HANDLER_MAP[id]
+
+class YConnectionHandle:
+    def __init__(self):
+        self.connections = []
+
+    def __del__(self):
+        unregister_handler(self.id)
+
+    def connect(self, name, password):
+        self.id = yahoo_init(name, password)
+        register_handler(self.id, self)
+        yahoo_login(self.id, YAHOO_STATUS_INVISIBLE)
+
+    def _login_response(self, succ, url): 
+        pass
+
+
 
 # Name: ext_yahoo_login_response
 # *     Called when the login process is complete
@@ -235,10 +256,70 @@ cdef convert_buddylist(YList *target):
 # *     id   - the id that identifies the server connection
 # *     buds - the buddy list
 # */
-cdef public void ext_yahoo_got_buddies "ext_yahoo_got_buddies" (int id, YList * buds):
+cdef public void ext_yahoo_got_buddies(int id, YList * buds):
     global HANDLER_MAP
     target = HANDLER_MAP.get(id)
     if target:
         target._got_buddies(convert_buddylist(buds))
 
+
+#/*
+# * Name: ext_yahoo_add_handler
+# * 	Add a listener for the fd.  Must call yahoo_read_ready
+# * 	when a YAHOO_INPUT_READ fd is ready and yahoo_write_ready
+# * 	when a YAHOO_INPUT_WRITE fd is ready.
+# * Params:
+# * 	id   - the id that identifies the server connection
+# * 	fd   - the fd on which to listen
+# * 	cond - the condition on which to call the callback
+# * 	data - callback data to pass to yahoo_*_ready
+# * 	
+# * Returns: a tag to be used when removing the handler
+# */
+cdef public int ext_yahoo_add_handler "ext_yahoo_add_handler" (int id, int fd, yahoo_input_condition cond, void *data):
+    cdef ConnectionHandle conn
+    handle =  HANDLER_MAP.get(id)
+    if handle is not None:
+        for ch in handle.connections:
+            if ch.fileno() == fd:
+                conn = ch
+    if conn is None:
+       print 'Unknown connection referenced by ext_yahoo_add_handler: ', (id, fd)
+       return -1
+    if cond == YAHOO_INPUT_READ:
+        conn.read_data = data
+        conn._readable = 1
+        return conn.read_tag
+    elif cond == YAHOO_INPUT_WRITE:
+        conn._writable = 1
+        conn.write_data = data
+        return conn.write_tag
+    else:
+        # TODO: how do handle errors here?  If we raise an exception here in a callback, will it propgage
+        # once we have control again?
+        print 'Unknown COND referenced by ext_yahoo_add_handler', cond
+        return -1
+    
+
+#/*
+# * Name: ext_yahoo_remove_handler
+# * 	Remove the listener for the fd.
+# * Params:
+# * 	id   - the id that identifies the connection
+# * 	tag  - the handler tag to remove
+# */
+cdef public void ext_yahoo_remove_handler "ext_yahoo_remove_handler" (int id, int tag):
+    cdef ConnectionHandle conn
+    handle =  HANDLER_MAP.get(id)
+    if handle is not None:
+        for conn in handle.connections:
+            if conn.read_tag == tag:
+                conn._readable = 0
+                conn.read_data = NULL
+                return
+            elif conn.write_tag == tag:
+                conn._writable = 0
+                conn.write_data = NULL
+                return
+    print 'Unknown connection referenced by ext_yahoo_add_handler: ', (id, tag)
 

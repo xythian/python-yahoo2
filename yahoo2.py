@@ -1,44 +1,58 @@
-from _yahoo2 import *
+import _yahoo2
+from _yahoo2 import YConnectionHandle
+from collections import defaultdict
+import asyncore, socket
 
-import asyncore
+#
+# In this cut, leave the ownership of the sockets to the binding
+# eventually be nice to expose socket creation to the app layer
+#
 
-class YFDHandle:
-    def __init__(self, fd):
-        self.fd = fd
-        self.readers = {}
-        self.writers = {}
-
-    def readable(self):
-        return len(self.readers) > 0
-
-    def writable(self):
-        return len(self.writers) > 0
+class Handle(asyncore.dispatcher):
+    def __init__(self, handle):
+        asyncore.dispatcher.__init__(self)
+        self.handle = handle
+        self._fileno = self.handle.fileno()
+        self.add_channel()
 
     def fileno(self):
-        return self.fd
-
-    def add_reader(self, tag, handler):
-        self.readers[tag] = handler
-        return tag
-
-    def add_writer(self, tag, handler):
-        self.writers[tag] = handler
-        return tag
-    
-class connection_opener(asyncore.dispatcher):
-    def handle_connect(self):
-        pass
-
-class connection_writer(asyncore.dispatcher):
-    def __init__(self, handle):
-        self.handle = handle
+        return self.handle.fileno()
+        
+    def readable(self):
+        return self.handle.readable()
 
     def writable(self):
-        return True
+        return self.handle.writable()
 
-class connection_reader(asyncore.dispatcher):
-    def __init__(self, handle):
-        self.handle = handle
+    def handle_connect(self):
+        self.handle.handle_connect()
 
-def run(self):
+    def handle_read(self):
+        self.handle.handle_read()
+
+    def handle_write(self):
+        self.handle.handle_write()
+
+    def handle_close(self):
+        self.handle.handle_close()
+        self.del_channel()
+
+class YConnectionManager:
+    def __init__(self):
+        self.handles = {}
+
+    def add(self, handle):
+        self.handles[handle] = Handle(handle)
+
+    def remove(self, handle):
+        try:
+            self.handles[handle].del_channel()
+            del self.handles[handle]
+        except KeyError:
+            pass
+
+def init():
+    _yahoo2.set_connection_manager(YConnectionManager())
+
+def run():    
     asyncore.loop()

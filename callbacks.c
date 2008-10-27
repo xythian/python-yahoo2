@@ -561,34 +561,6 @@ int ext_yahoo_log(char *fmt, ...) {
 }
 
 /*
- * Name: ext_yahoo_add_handler
- * 	Add a listener for the fd.  Must call yahoo_read_ready
- * 	when a YAHOO_INPUT_READ fd is ready and yahoo_write_ready
- * 	when a YAHOO_INPUT_WRITE fd is ready.
- * Params:
- * 	id   - the id that identifies the server connection
- * 	fd   - the fd on which to listen
- * 	cond - the condition on which to call the callback
- * 	data - callback data to pass to yahoo_*_ready
- * 	
- * Returns: a tag to be used when removing the handler
- */
-int ext_yahoo_add_handler(int id, int fd, yahoo_input_condition cond, void *data) {
-  return -1;
-}
-
-/*
- * Name: ext_yahoo_remove_handler
- * 	Remove the listener for the fd.
- * Params:
- * 	id   - the id that identifies the connection
- * 	tag  - the handler tag to remove
- */
-void ext_yahoo_remove_handler(int id, int tag) {
-  
-}
-
-/*
  * Name: ext_yahoo_connect
  * 	Connect to a host:port
  * Params:
