@@ -52,6 +52,7 @@ class YConnectionManager:
             pass
 
 def init():
+    _yahoo2.set_log_level(_yahoo2.log_level.LOG_DEBUG)
     _yahoo2.set_connection_manager(YConnectionManager())
 
 def run():    

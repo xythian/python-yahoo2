@@ -4,6 +4,15 @@ from errno import EALREADY, EINPROGRESS, EWOULDBLOCK, ECONNRESET, \
 
 
 cdef extern from "yahoo2.h":
+    cdef enum yahoo_log_level:
+        YAHOO_LOG_NONE = 0
+        YAHOO_LOG_FATAL
+        YAHOO_LOG_ERR
+        YAHOO_LOG_WARNING
+        YAHOO_LOG_NOTICE
+        YAHOO_LOG_INFO
+        YAHOO_LOG_DEBUG
+
     cdef enum yahoo_status:
         YAHOO_STATUS_AVAILABLE = 0
         YAHOO_STATUS_BRB
@@ -20,6 +29,14 @@ cdef extern from "yahoo2.h":
         YAHOO_STATUS_IDLE = 999
         YAHOO_STATUS_OFFLINE = 0x5a55aa56
         YAHOO_STATUS_NOTIFY = 0x16
+
+    cdef enum yahoo_login_status:
+        YAHOO_LOGIN_OK = 0
+        YAHOO_LOGIN_UNAME = 3
+        YAHOO_LOGIN_PASSWD = 13
+        YAHOO_LOGIN_LOCK = 14
+        YAHOO_LOGIN_DUPL = 99
+        YAHOO_LOGIN_SOCK = -1
 
     cdef struct yab:
         char *id
@@ -74,6 +91,8 @@ cdef extern from "yahoo2.h":
     
 
 
+    cdef int yahoo_set_log_level(yahoo_log_level level)
+
     int yahoo_init(char *username, char *password)
     void yahoo_login(int id, int initial)
 
@@ -89,6 +108,19 @@ cdef extern from "yahoo2.h":
 
 cdef extern from "yahoo2_callbacks.h":
     ctypedef void (*yahoo_connect_callback)(int fd, int error, void *callback_data)
+
+class log_level:
+    LOG_NONE = YAHOO_LOG_NONE
+    LOG_FATAL = YAHOO_LOG_FATAL
+    LOG_ERR =  YAHOO_LOG_ERR
+    LOG_WARNING = YAHOO_LOG_WARNING
+    LOG_NOTICE = YAHOO_LOG_NOTICE
+    LOG_INFO = YAHOO_LOG_INFO
+    LOG_DEBUG = YAHOO_LOG_DEBUG
+
+
+def set_log_level(level):
+    yahoo_set_log_level(level)
 
 class IDSource:
     def __init__(self):
@@ -137,6 +169,12 @@ cdef class ConnectionHandle:
         elif err in (0, EISCONN):
             self.handle_connect()
 
+    cdef int connect(self):
+        self.sock.setblocking(1)
+        result = self.sock.connect_ex((self.host, self.port))
+        self.sock.setblocking(0)
+        return result
+
     cdef void _handle_connect(self):
         if self.connect_callback is not NULL:
             self.connect_callback(self.fileno(), 0, self.connect_data)
@@ -159,21 +197,21 @@ cdef class ConnectionHandle:
 
 #/*
 # * Name: ext_yahoo_connect_async
-# * 	Connect to a host:port asynchronously.  This function should return
-# * 	immediately returing a tag used to identify the connection handler,
-# * 	or a pre-connect error (eg: host name lookup failure).
-# * 	Once the connect completes (successfully or unsuccessfully), callback
-# * 	should be called (see the signature for yahoo_connect_callback).
-# * 	The callback may safely be called before this function returns, but
-# * 	it should not be called twice.
+# *     Connect to a host:port asynchronously.  This function should return
+# *     immediately returing a tag used to identify the connection handler,
+# *     or a pre-connect error (eg: host name lookup failure).
+# *     Once the connect completes (successfully or unsuccessfully), callback
+# *     should be called (see the signature for yahoo_connect_callback).
+# *     The callback may safely be called before this function returns, but
+# *     it should not be called twice.
 # * Params:
-# * 	id   - the id that identifies this connection
-# * 	host - the host to connect to
-# * 	port - the port to connect on
-# * 	callback - function to call when connect completes
-# * 	callback_data - data to pass to the callback function
+# *     id   - the id that identifies this connection
+# *     host - the host to connect to
+# *     port - the port to connect on
+# *     callback - function to call when connect completes
+# *     callback_data - data to pass to the callback function
 # * Returns:
-# * 	a unix file descriptor to the socket
+# *     a unix file descriptor to the socket
 # */
 cdef public int ext_yahoo_connect_async(int id, char *host, int port, 
                                          yahoo_connect_callback callback, void *callback_data):
@@ -185,6 +223,25 @@ cdef public int ext_yahoo_connect_async(int id, char *host, int port,
    HANDLER_MAP[id].connections.append(handle)
    MANAGER.add(handle)
    return handle.fileno()
+
+#/*
+# * Name: ext_yahoo_connect
+# *     Connect to a host:port
+# * Params:
+# *     host - the host to connect to
+# *     port - the port to connect on
+# * Returns:
+# *     a unix file descriptor to the socket
+# */
+cdef public int ext_yahoo_connect "ext_yahoo_connect" (char *host, int port):
+  cdef ConnectionHandle handle
+  handle = ConnectionHandle(host, port)
+  err = handle.connect()
+  if err in (0, EISCONN):
+      return handle.fileno()
+  else:
+      return err
+
 
 ID_SOURCE = IDSource()
 HANDLER_MAP = {}
@@ -233,7 +290,7 @@ cdef public void ext_yahoo_login_response(int id, int succ, char *url):
     target = HANDLER_MAP.get(id)
     if target:
         if url == NULL:
-            target._login_response(succ, '')
+            target._login_response(succ, 'none')
         else:
             target._login_response(succ, url) 
 
@@ -265,15 +322,15 @@ cdef public void ext_yahoo_got_buddies(int id, YList * buds):
 
 #/*
 # * Name: ext_yahoo_add_handler
-# * 	Add a listener for the fd.  Must call yahoo_read_ready
-# * 	when a YAHOO_INPUT_READ fd is ready and yahoo_write_ready
-# * 	when a YAHOO_INPUT_WRITE fd is ready.
+# *     Add a listener for the fd.  Must call yahoo_read_ready
+# *     when a YAHOO_INPUT_READ fd is ready and yahoo_write_ready
+# *     when a YAHOO_INPUT_WRITE fd is ready.
 # * Params:
-# * 	id   - the id that identifies the server connection
-# * 	fd   - the fd on which to listen
-# * 	cond - the condition on which to call the callback
-# * 	data - callback data to pass to yahoo_*_ready
-# * 	
+# *     id   - the id that identifies the server connection
+# *     fd   - the fd on which to listen
+# *     cond - the condition on which to call the callback
+# *     data - callback data to pass to yahoo_*_ready
+# *     
 # * Returns: a tag to be used when removing the handler
 # */
 cdef public int ext_yahoo_add_handler "ext_yahoo_add_handler" (int id, int fd, yahoo_input_condition cond, void *data):
@@ -303,10 +360,10 @@ cdef public int ext_yahoo_add_handler "ext_yahoo_add_handler" (int id, int fd, y
 
 #/*
 # * Name: ext_yahoo_remove_handler
-# * 	Remove the listener for the fd.
+# *     Remove the listener for the fd.
 # * Params:
-# * 	id   - the id that identifies the connection
-# * 	tag  - the handler tag to remove
+# *     id   - the id that identifies the connection
+# *     tag  - the handler tag to remove
 # */
 cdef public void ext_yahoo_remove_handler "ext_yahoo_remove_handler" (int id, int tag):
     cdef ConnectionHandle conn
@@ -316,10 +373,14 @@ cdef public void ext_yahoo_remove_handler "ext_yahoo_remove_handler" (int id, in
             if conn.read_tag == tag:
                 conn._readable = 0
                 conn.read_data = NULL
+                if not conn._writable:
+                    MANAGER.remove(conn)
                 return
             elif conn.write_tag == tag:
                 conn._writable = 0
                 conn.write_data = NULL
+                if not conn._readable:
+                    MANAGER.remove(conn)
                 return
-    print 'Unknown connection referenced by ext_yahoo_add_handler: ', (id, tag)
+    print 'Unknown connection referenced by ext_yahoo_remove_handler: ', (id, tag)
 
