@@ -1,9 +1,9 @@
 
-all: test
+all: _yahoo2.so
 
-test: test.py _yahoo2.so
-	python test.py
-
+#test: test.py _yahoo2.so
+#	python test.py
+#
 _yahoo2.so: callbacks.c _yahoo2.pyx
 	python setup.py build_ext --inplace
 
