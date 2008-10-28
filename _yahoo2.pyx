@@ -110,13 +110,13 @@ cdef extern from "yahoo2_callbacks.h":
     ctypedef void (*yahoo_connect_callback)(int fd, int error, void *callback_data)
 
 class log_level:
-    LOG_NONE = YAHOO_LOG_NONE
-    LOG_FATAL = YAHOO_LOG_FATAL
-    LOG_ERR =  YAHOO_LOG_ERR
-    LOG_WARNING = YAHOO_LOG_WARNING
-    LOG_NOTICE = YAHOO_LOG_NOTICE
-    LOG_INFO = YAHOO_LOG_INFO
-    LOG_DEBUG = YAHOO_LOG_DEBUG
+    NONE = YAHOO_LOG_NONE
+    FATAL = YAHOO_LOG_FATAL
+    ERR =  YAHOO_LOG_ERR
+    WARNING = YAHOO_LOG_WARNING
+    NOTICE = YAHOO_LOG_NOTICE
+    INFO = YAHOO_LOG_INFO
+    DEBUG = YAHOO_LOG_DEBUG
 
 
 def set_log_level(level):
@@ -382,5 +382,5 @@ cdef public void ext_yahoo_remove_handler "ext_yahoo_remove_handler" (int id, in
                 if not conn._readable:
                     MANAGER.remove(conn)
                 return
-    print 'Unknown connection referenced by ext_yahoo_remove_handler: ', (id, tag)
+    #print 'Unknown connection referenced by ext_yahoo_remove_handler: ', (id, tag)
 

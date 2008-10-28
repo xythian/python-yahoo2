@@ -1,5 +1,5 @@
 import _yahoo2
-from _yahoo2 import YConnectionHandle
+from _yahoo2 import YConnectionHandle, log_level, set_log_level
 from collections import defaultdict
 import asyncore, socket
 
@@ -52,7 +52,6 @@ class YConnectionManager:
             pass
 
 def init():
-    _yahoo2.set_log_level(_yahoo2.log_level.LOG_DEBUG)
     _yahoo2.set_connection_manager(YConnectionManager())
 
 def run():    
