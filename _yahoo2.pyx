@@ -163,6 +163,7 @@ cdef class ConnectionHandle:
     cdef void async_connect(self, yahoo_connect_callback callback, void *data):
         self.connect_callback = callback
         self.connect_data = data
+        print 'connecting async'
         err = self.sock.connect_ex((self.host, self.port))
         if err in (EINPROGRESS, EALREADY, EWOULDBLOCK):
             return
@@ -170,12 +171,14 @@ cdef class ConnectionHandle:
             self.handle_connect()
 
     cdef int connect(self):
+        print 'connecting'
         self.sock.setblocking(1)
         result = self.sock.connect_ex((self.host, self.port))
         self.sock.setblocking(0)
         return result
 
     cdef void _handle_connect(self):
+        print 'connect u like'
         if self.connect_callback is not NULL:
             self.connect_callback(self.fileno(), 0, self.connect_data)
             self.connect_callback = NULL
@@ -186,15 +189,17 @@ cdef class ConnectionHandle:
 
     cdef void _handle_write(self):
         if self._writable:
-           yahoo_write_ready(self.cid, self.fileno(), self.write_data)
+           yahoo_write_ready(self.cid, self.fileno(), self.write_data)    
+
+    cdef void _handle_close(self):
+        if self.sock:
+            self.sock.close()
+            self.sock = None
   
     def handle_read(self):  self._handle_read()
     def handle_write(self): self._handle_write()
     def handle_connect(self): self._handle_connect()
-
-    
-
-
+    def handle_close(self): self._handle_close()
 #/*
 # * Name: ext_yahoo_connect_async
 # *     Connect to a host:port asynchronously.  This function should return
@@ -213,16 +218,16 @@ cdef class ConnectionHandle:
 # * Returns:
 # *     a unix file descriptor to the socket
 # */
-cdef public int ext_yahoo_connect_async(int id, char *host, int port, 
+cdef public int py_ext_yahoo_connect_async(int id, char *host, int port, 
                                          yahoo_connect_callback callback, void *callback_data):
-   cdef ConnectionHandle handle
-   handle = ConnectionHandle(id, host, port)
-   handle.connect_callback = callback
-   handle.connect_data = callback_data
-   handle.async_connect(callback, callback_data)
-   HANDLER_MAP[id].connections.append(handle)
-   MANAGER.add(handle)
-   return handle.fileno()
+    cdef ConnectionHandle handle
+    handle = ConnectionHandle(id, host, port)
+    handle.connect_callback = callback
+    handle.connect_data = callback_data
+    handle.async_connect(callback, callback_data)
+    HANDLER_MAP[id].connections.append(handle)
+    MANAGER.add(handle)
+    return handle.fileno()
 
 #/*
 # * Name: ext_yahoo_connect
@@ -233,7 +238,7 @@ cdef public int ext_yahoo_connect_async(int id, char *host, int port,
 # * Returns:
 # *     a unix file descriptor to the socket
 # */
-cdef public int ext_yahoo_connect "ext_yahoo_connect" (char *host, int port):
+cdef public int py_ext_yahoo_connect "py_ext_yahoo_connect" (char *host, int port):
   cdef ConnectionHandle handle
   handle = ConnectionHandle(host, port)
   err = handle.connect()
@@ -242,6 +247,22 @@ cdef public int ext_yahoo_connect "ext_yahoo_connect" (char *host, int port):
   else:
       return err
 
+#/*
+# * Name: ext_yahoo_got_ping
+# * 	Called when the ping packet is received from the server
+# * Params:
+# * 	id   - the id that identifies the server connection
+# *  errormsg - optional error message
+# */
+cdef public void py_ext_yahoo_got_ping "py_ext_yahoo_got_ping" (int id, char *errormsg):
+    global HANDLER_MAP
+    target = HANDLER_MAP.get(id)
+    if target:
+        if errormsg:
+            target.got_ping(errormsg)
+        else:
+            target.got_ping("")
+    
 
 ID_SOURCE = IDSource()
 HANDLER_MAP = {}
@@ -268,14 +289,17 @@ class YConnectionHandle:
     def __del__(self):
         unregister_handler(self.id)
 
-    def connect(self, name, password):
+    def connect(self, name, password, status=YAHOO_STATUS_AVAILABLE):
         self.id = yahoo_init(name, password)
         register_handler(self.id, self)
-        yahoo_login(self.id, YAHOO_STATUS_INVISIBLE)
+        print 'trying to login U like'
+        yahoo_login(self.id, status)
 
     def _login_response(self, succ, url): 
         pass
 
+    def got_ping(self, msg):
+        pass
 
 
 # Name: ext_yahoo_login_response
@@ -285,9 +309,10 @@ class YConnectionHandle:
 # *     succ - enum yahoo_login_status
 # *     url  - url to reactivate account if locked
 # */
-cdef public void ext_yahoo_login_response(int id, int succ, char *url):
+cdef public void py_ext_yahoo_login_response(int id, int succ, char *url):
     global HANDLER_MAP
     target = HANDLER_MAP.get(id)
+    print 'yahoo_login_response', id, succ
     if target:
         if url == NULL:
             target._login_response(succ, 'none')
@@ -299,7 +324,15 @@ cdef void convert_buddylist_item(void *item, void *data):
    cdef object context
    context = <object>data
    buddy =  <yahoo_buddy*>item
-   context.append({'group' : buddy.group, 'id' : buddy.id, 'real_name' : buddy.real_name})
+   cdef object name
+   name = None
+   if buddy.real_name:
+       name = buddy.real_name
+   cdef object group
+   group = None
+   if buddy.group:
+       group = buddy.group
+   context.append({'group' : group, 'id' : buddy.id, 'real_name' : name})
 
 cdef convert_buddylist(YList *target):
     result = []

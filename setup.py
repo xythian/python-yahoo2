@@ -4,6 +4,7 @@ from setuptools import setup, Extension
 
 yahoo2_pyx_module = Extension('_yahoo2',
                               sources=['_yahoo2.pyx', 'callbacks.c'],
+                              include_dirs=['/usr/include/libyahoo2'],
                               libraries=['yahoo2'])
 
 setup(name='yahoo2',

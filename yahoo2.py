@@ -13,6 +13,8 @@ class Handle(asyncore.dispatcher):
         asyncore.dispatcher.__init__(self)
         self.handle = handle
         self._fileno = self.handle.fileno()
+        self.connected = True
+        self._really_connected = False
         self.add_channel()
 
     def fileno(self):
@@ -31,6 +33,9 @@ class Handle(asyncore.dispatcher):
         self.handle.handle_read()
 
     def handle_write(self):
+        if not self._really_connected:
+            self._really_connected = True
+            self.handle_connect_event()
         self.handle.handle_write()
 
     def handle_close(self):
@@ -42,6 +47,7 @@ class YConnectionManager:
         self.handles = {}
 
     def add(self, handle):
+        print 'adding handle ',handle
         self.handles[handle] = Handle(handle)
 
     def remove(self, handle):
